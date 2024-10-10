@@ -46,10 +46,8 @@ backup=~/nvidia-nano-tc358748-driver
 mkdir -p $backup/driver/
 cp ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/kernel-4.9/drivers/media/i2c/tc358748.c $backup/driver/
 cp ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/nvidia/include/media/tc358748.h $backup/driver/
-cp ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/kernel-4.9/drivers/media/i2c/tc358748_mode_tbls.h $backup/driver/
 
 # -------------------- Driver restore --------------------
 backup=~/nvidia-nano-tc358748-driver
 cp $backup/driver/tc358748.c           ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/kernel-4.9/drivers/media/i2c/
 cp $backup/driver/tc358748.h           ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/nvidia/include/media/
-cp $backup/driver/tc358748_mode_tbls.h ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/kernel-4.9/drivers/media/i2c/
