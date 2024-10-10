@@ -32,7 +32,7 @@
 			reg = <0>;
 			#address-cells = <1>;
 			#size-cells = <0>;
-			rbpcv4_tc358748_a@1a {
+			rbpcv4_tc358748_a@0e {
 				status = "disabled";
 				reset-gpios = <&gpio CAM1_PWDN GPIO_ACTIVE_HIGH>;
 			};
@@ -41,7 +41,7 @@
 			reg = <1>;
 			#address-cells = <1>;
 			#size-cells = <0>;
-			rbpcv4_tc358748_e@1a {
+			rbpcv4_tc358748_e@0e {
 				status = "disabled";
 				reset-gpios = <&gpio CAM2_PWDN GPIO_ACTIVE_HIGH>;
 			};

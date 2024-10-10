@@ -1,21 +1,5 @@
 /*
- * tc358748.c - tc358748 sensor driver
- *
- * Copyright (c) 2020, RidgeRun. All rights reserved.
- *
- * Contact us: support@ridgerun.com
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * tc358748.c - tc358748 parallel to CSI-2 driver
  */
 
 #include <linux/slab.h>
@@ -27,19 +11,38 @@
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
 
+#include <media/camera_common.h>
 #include <media/tegra_v4l2_camera.h>
 #include <media/tegracam_core.h>
 #include <media/tc358748.h>
 
-#include "/home/p2119/l4t-gcc/Linux_for_Tegra/source/public/kernel/nvidia/drivers/media/i2c/../platform/tegra/camera/camera_gpio.h"
-#include "tc358748_mode_tbls.h"
-
 static const struct of_device_id tc358748_of_match[] = {
-	{.compatible = "nvidia,tc358748",},
+	{.compatible = "pco,tc358748",},
 	{},
 };
 
 MODULE_DEVICE_TABLE(of, tc358748_of_match);
+
+enum {
+	tc358748_MODE_3840x2160_30FPS,
+	tc358748_MODE_1920x1080_60FPS,
+	tc358748_MODE_COMMON,
+	tc358748_START_STREAM,
+	tc358748_STOP_STREAM,
+};
+
+static const int tc358748_30_fr[] = {
+	30,
+};
+
+static const int tc358748_60_fr[] = {
+	60,
+};
+
+static const struct camera_common_frmfmt tc358748_frmfmt[] = {
+	{{3840, 2160}, tc358748_30_fr, 1, 0, tc358748_MODE_3840x2160_30FPS},
+	{{1920, 1080}, tc358748_60_fr, 1, 0, tc358748_MODE_1920x1080_60FPS},
+};
 
 static const u32 ctrl_cid_list[] = {
 	TEGRA_CAMERA_CID_GAIN,
@@ -57,39 +60,91 @@ struct tc358748 {
 	struct tegracam_device *tc_dev;
 };
 
-static const struct regmap_config sensor_regmap_config = {
-	.reg_bits = 16,
-	.val_bits = 8,
-	.cache_type = REGCACHE_RBTREE,
-	.use_single_rw = true,
+
+static const struct regmap_range ctl_regmap_rw_ranges[] = {
+	regmap_reg_range(0x0000, 0x00ff),
 };
 
-static inline void tc358748_get_frame_length_regs(tc358748_reg * regs,
-						u32 frame_length)
-{
-	regs->addr = tc358748_FRAME_LENGTH_ADDR_MSB;
-	regs->val = (frame_length >> 8) & 0xff;
-	(regs + 1)->addr = tc358748_FRAME_LENGTH_ADDR_LSB;
-	(regs + 1)->val = (frame_length) & 0xff;
-}
+static const struct regmap_access_table ctl_regmap_access = {
+	.yes_ranges = ctl_regmap_rw_ranges,
+	.n_yes_ranges = ARRAY_SIZE(ctl_regmap_rw_ranges),
+};
 
-static inline void tc358748_get_coarse_integ_time_regs(tc358748_reg * regs,
-						     u32 coarse_time)
-{
-	regs->addr = tc358748_COARSE_INTEG_TIME_ADDR_MSB;
-	regs->val = (coarse_time >> 8) & 0xff;
-	(regs + 1)->addr = tc358748_COARSE_INTEG_TIME_ADDR_LSB;
-	(regs + 1)->val = (coarse_time) & 0xff;
-}
+static const struct regmap_config ctl_regmap_config = {
+	.reg_bits = 16,
+	.reg_stride = 2,
+	.val_bits = 16,
+	.cache_type = REGCACHE_NONE,
+	.max_register = 0x00ff,
+	.reg_format_endian = REGMAP_ENDIAN_BIG,
+	.val_format_endian = REGMAP_ENDIAN_BIG,
+	.rd_table = &ctl_regmap_access,
+	.wr_table = &ctl_regmap_access,
+	.name = "tc358746-ctl",
+};
 
-static inline void tc358748_get_gain_reg(tc358748_reg * reg, u16 gain)
-{
-	reg->addr = tc358748_ANALOG_GAIN_ADDR_MSB;
-	reg->val = (gain >> tc358748_SHIFT_8_BITS) & tc358748_MASK_LSB_2_BITS;
+static const struct regmap_range tx_regmap_rw_ranges[] = {
+	regmap_reg_range(0x0100, 0x05ff),
+};
 
-	(reg + 1)->addr = tc358748_ANALOG_GAIN_ADDR_LSB;
-	(reg + 1)->val = (gain) & tc358748_MASK_LSB_8_BITS;
-}
+static const struct regmap_access_table tx_regmap_access = {
+	.yes_ranges = tx_regmap_rw_ranges,
+	.n_yes_ranges = ARRAY_SIZE(tx_regmap_rw_ranges),
+};
+
+static const struct regmap_config sensor_regmap_config = {
+	.reg_bits = 16,
+	.reg_stride = 4,
+	.val_bits = 32,
+	.cache_type = REGCACHE_NONE,
+	.max_register = 0x05ff,
+	.reg_format_endian = REGMAP_ENDIAN_BIG,
+	.val_format_endian = REGMAP_ENDIAN_BIG_LITTLE,
+	.rd_table = &tx_regmap_access,
+	.wr_table = &tx_regmap_access,
+	.name = "tc358746-tx",
+};
+
+// static const struct regmap_config sensor_regmap_config = {
+// 	.reg_bits = 16,
+// 	// .val_bits = 8,
+// 	// .cache_type = REGCACHE_RBTREE,
+// 	// .use_single_rw = true,
+// 	.val_bits = 16,
+// 	.cache_type = REGCACHE_NONE,
+// };
+
+
+
+
+
+
+// static inline void tc358748_get_frame_length_regs(tc358748_reg * regs,
+// 						u32 frame_length)
+// {
+// 	regs->addr = tc358748_FRAME_LENGTH_ADDR_MSB;
+// 	regs->val = (frame_length >> 8) & 0xff;
+// 	(regs + 1)->addr = tc358748_FRAME_LENGTH_ADDR_LSB;
+// 	(regs + 1)->val = (frame_length) & 0xff;
+// }
+
+// static inline void tc358748_get_coarse_integ_time_regs(tc358748_reg * regs,
+// 						     u32 coarse_time)
+// {
+// 	regs->addr = tc358748_COARSE_INTEG_TIME_ADDR_MSB;
+// 	regs->val = (coarse_time >> 8) & 0xff;
+// 	(regs + 1)->addr = tc358748_COARSE_INTEG_TIME_ADDR_LSB;
+// 	(regs + 1)->val = (coarse_time) & 0xff;
+// }
+
+// static inline void tc358748_get_gain_reg(tc358748_reg * reg, u16 gain)
+// {
+// 	reg->addr = tc358748_ANALOG_GAIN_ADDR_MSB;
+// 	reg->val = (gain >> tc358748_SHIFT_8_BITS) & tc358748_MASK_LSB_2_BITS;
+
+// 	(reg + 1)->addr = tc358748_ANALOG_GAIN_ADDR_LSB;
+// 	(reg + 1)->val = (gain) & tc358748_MASK_LSB_8_BITS;
+// }
 
 static inline int tc358748_read_reg(struct camera_common_data *s_data,
 				  u16 addr, u8 * val)
@@ -116,97 +171,99 @@ static inline int tc358748_write_reg(struct camera_common_data *s_data,
 	return err;
 }
 
-static int tc358748_write_table(struct tc358748 *priv, const tc358748_reg table[])
-{
-	return regmap_util_write_table_8(priv->s_data->regmap, table, NULL, 0,
-					 tc358748_TABLE_WAIT_MS,
-					 tc358748_TABLE_END);
-}
+// static int tc358748_write_table(struct tc358748 *priv, const tc358748_reg table[])
+// {
+// 	return regmap_util_write_table_8(priv->s_data->regmap, table, NULL, 0,
+// 					 tc358748_TABLE_WAIT_MS,
+// 					 tc358748_TABLE_END);
+// }
 
 static int tc358748_set_group_hold(struct tegracam_device *tc_dev, bool val)
 {
-	struct camera_common_data *s_data = tc_dev->s_data;
-	struct device *dev = tc_dev->dev;
-	int err;
+// 	struct camera_common_data *s_data = tc_dev->s_data;
+// 	struct device *dev = tc_dev->dev;
+// 	int err;
 
-	dev_dbg(dev, "%s: Setting group hold control to: %u\n", __func__, val);
+// 	dev_dbg(dev, "%s: Setting group hold control to: %u\n", __func__, val);
 
-	err = tc358748_write_reg(s_data, tc358748_GROUP_HOLD_ADDR, val);
-	if (err) {
-		dev_err(dev, "%s: Group hold control error\n", __func__);
-		return err;
-	}
+// 	err = tc358748_write_reg(s_data, tc358748_GROUP_HOLD_ADDR, val);
+// 	if (err) {
+// 		dev_err(dev, "%s: Group hold control error\n", __func__);
+// 		return err;
+// 	}
 
 	return 0;
 }
 
-static int tc358748_get_fine_integ_time(struct tc358748 *priv, u16 * fine_time)
-{
-	struct camera_common_data *s_data = priv->s_data;
-	int err = 0;
-	u8 reg_val[2];
+// static int tc358748_get_fine_integ_time(struct tc358748 *priv, u16 * fine_time)
+// {
+// 	struct camera_common_data *s_data = priv->s_data;
+// 	int err = 0;
+// 	u8 reg_val[2];
 
-	err = tc358748_read_reg(s_data, tc358748_FINE_INTEG_TIME_ADDR_MSB,
-			      &reg_val[0]);
-	if (err)
-		goto done;
+// 	err = tc358748_read_reg(s_data, tc358748_FINE_INTEG_TIME_ADDR_MSB,
+// 			      &reg_val[0]);
+// 	if (err)
+// 		goto done;
 
-	err = tc358748_read_reg(s_data, tc358748_FINE_INTEG_TIME_ADDR_LSB,
-			      &reg_val[1]);
-	if (err)
-		goto done;
+// 	err = tc358748_read_reg(s_data, tc358748_FINE_INTEG_TIME_ADDR_LSB,
+// 			      &reg_val[1]);
+// 	if (err)
+// 		goto done;
 
-	*fine_time = (reg_val[0] << 8) | reg_val[1];
+// 	*fine_time = (reg_val[0] << 8) | reg_val[1];
 
-done:
-	return err;
-}
+// done:
+// 	return err;
+// 	return 0;
+// }
 
 static int tc358748_set_gain(struct tegracam_device *tc_dev, s64 val)
 {
-	struct camera_common_data *s_data = tc_dev->s_data;
-	struct device *dev = s_data->dev;
-	const struct sensor_mode_properties *mode =
-	    &s_data->sensor_props.sensor_modes[s_data->mode_prop_idx];
-	int err = 0, i = 0;
-	tc358748_reg gain_reg[2];
-	s16 gain;
+// 	struct camera_common_data *s_data = tc_dev->s_data;
+// 	struct device *dev = s_data->dev;
+// 	const struct sensor_mode_properties *mode =
+// 	    &s_data->sensor_props.sensor_modes[s_data->mode_prop_idx];
+// 	int err = 0, i = 0;
+// 	tc358748_reg gain_reg[2];
+// 	s16 gain;
 
-	dev_dbg(dev, "%s: Setting gain control to: %lld\n", __func__, val);
+// 	dev_dbg(dev, "%s: Setting gain control to: %lld\n", __func__, val);
 
-	if (val < mode->control_properties.min_gain_val)
-		val = mode->control_properties.min_gain_val;
-	else if (val > mode->control_properties.max_gain_val)
-		val = mode->control_properties.max_gain_val;
+// 	if (val < mode->control_properties.min_gain_val)
+// 		val = mode->control_properties.min_gain_val;
+// 	else if (val > mode->control_properties.max_gain_val)
+// 		val = mode->control_properties.max_gain_val;
 
-	/* Gain Formula:
-	   Gain = (tc358748_GAIN_C0 - (tc358748_GAIN_C0 * gain_factor / val))
-	 */
-	gain =
-	    (s16) (tc358748_ANALOG_GAIN_C0 -
-		   (mode->control_properties.gain_factor *
-		    tc358748_ANALOG_GAIN_C0 / val));
+// 	/* Gain Formula:
+// 	   Gain = (tc358748_GAIN_C0 - (tc358748_GAIN_C0 * gain_factor / val))
+// 	 */
+// 	gain =
+// 	    (s16) (tc358748_ANALOG_GAIN_C0 -
+// 		   (mode->control_properties.gain_factor *
+// 		    tc358748_ANALOG_GAIN_C0 / val));
 
-	if (gain < tc358748_MIN_GAIN)
-		gain = tc358748_MAX_GAIN;
-	else if (gain > tc358748_MAX_GAIN)
-		gain = tc358748_MAX_GAIN;
+// 	if (gain < tc358748_MIN_GAIN)
+// 		gain = tc358748_MAX_GAIN;
+// 	else if (gain > tc358748_MAX_GAIN)
+// 		gain = tc358748_MAX_GAIN;
 
-	dev_dbg(dev, "%s: val: %lld (/%d) [times], gain: %u\n",
-		__func__, val, mode->control_properties.gain_factor, gain);
+// 	dev_dbg(dev, "%s: val: %lld (/%d) [times], gain: %u\n",
+// 		__func__, val, mode->control_properties.gain_factor, gain);
 
-	tc358748_get_gain_reg(gain_reg, (u16) gain);
+// 	tc358748_get_gain_reg(gain_reg, (u16) gain);
 
-	for (i = 0; i < ARRAY_SIZE(gain_reg); i++) {
-		err = tc358748_write_reg(s_data, gain_reg[i].addr,
-				       gain_reg[i].val);
-		if (err) {
-			dev_err(dev, "%s: gain control error\n", __func__);
-			break;
-		}
-	}
+// 	for (i = 0; i < ARRAY_SIZE(gain_reg); i++) {
+// 		err = tc358748_write_reg(s_data, gain_reg[i].addr,
+// 				       gain_reg[i].val);
+// 		if (err) {
+// 			dev_err(dev, "%s: gain control error\n", __func__);
+// 			break;
+// 		}
+// 	}
 
-	return err;
+// 	return err;
+	return 0;
 }
 
 static int tc358748_set_frame_rate(struct tegracam_device *tc_dev, s64 val)
@@ -218,9 +275,9 @@ static int tc358748_set_frame_rate(struct tegracam_device *tc_dev, s64 val)
 	    &s_data->sensor_props.sensor_modes[s_data->mode_prop_idx];
 
 	int err = 0;
-	tc358748_reg fl_regs[2];
+	// tc358748_reg fl_regs[2];
 	u32 frame_length;
-	int i;
+	// int i;
 
 	dev_dbg(dev, "%s: Setting framerate control to: %lld\n", __func__, val);
 
@@ -237,15 +294,15 @@ static int tc358748_set_frame_rate(struct tegracam_device *tc_dev, s64 val)
 		"%s: val: %llde-6 [fps], frame_length: %u [lines]\n",
 		__func__, val, frame_length);
 
-	tc358748_get_frame_length_regs(fl_regs, frame_length);
-	for (i = 0; i < 2; i++) {
-		err = tc358748_write_reg(s_data, fl_regs[i].addr, fl_regs[i].val);
-		if (err) {
-			dev_err(dev,
-				"%s: frame_length control error\n", __func__);
-			return err;
-		}
-	}
+	// tc358748_get_frame_length_regs(fl_regs, frame_length);
+	// for (i = 0; i < 2; i++) {
+	// 	err = tc358748_write_reg(s_data, fl_regs[i].addr, fl_regs[i].val);
+	// 	if (err) {
+	// 		dev_err(dev,
+	// 			"%s: frame_length control error\n", __func__);
+	// 		return err;
+	// 	}
+	// }
 
 	priv->frame_length = frame_length;
 
@@ -254,52 +311,53 @@ static int tc358748_set_frame_rate(struct tegracam_device *tc_dev, s64 val)
 
 static int tc358748_set_exposure(struct tegracam_device *tc_dev, s64 val)
 {
-	struct camera_common_data *s_data = tc_dev->s_data;
-	struct tc358748 *priv = (struct tc358748 *)tc_dev->priv;
-	struct device *dev = tc_dev->dev;
-	const struct sensor_mode_properties *mode =
-	    &s_data->sensor_props.sensor_modes[s_data->mode_prop_idx];
+// 	struct camera_common_data *s_data = tc_dev->s_data;
+// 	struct tc358748 *priv = (struct tc358748 *)tc_dev->priv;
+// 	struct device *dev = tc_dev->dev;
+// 	const struct sensor_mode_properties *mode =
+// 	    &s_data->sensor_props.sensor_modes[s_data->mode_prop_idx];
 
-	int err = 0;
-	tc358748_reg ct_regs[2];
-	const s32 max_coarse_time = priv->frame_length - tc358748_MAX_COARSE_DIFF;
-	const s32 fine_integ_time_factor = priv->fine_integ_time *
-	    mode->control_properties.exposure_factor /
-	    mode->signal_properties.pixel_clock.val;
-	u32 coarse_time;
-	int i;
+// 	int err = 0;
+// 	tc358748_reg ct_regs[2];
+// 	const s32 max_coarse_time = priv->frame_length - tc358748_MAX_COARSE_DIFF;
+// 	const s32 fine_integ_time_factor = priv->fine_integ_time *
+// 	    mode->control_properties.exposure_factor /
+// 	    mode->signal_properties.pixel_clock.val;
+// 	u32 coarse_time;
+// 	int i;
 
-	dev_dbg(dev, "%s: Setting exposure control to: %lld\n", __func__, val);
+// 	dev_dbg(dev, "%s: Setting exposure control to: %lld\n", __func__, val);
 
-	coarse_time = (val - fine_integ_time_factor)
-	    * mode->signal_properties.pixel_clock.val
-	    / mode->control_properties.exposure_factor
-	    / mode->image_properties.line_length;
+// 	coarse_time = (val - fine_integ_time_factor)
+// 	    * mode->signal_properties.pixel_clock.val
+// 	    / mode->control_properties.exposure_factor
+// 	    / mode->image_properties.line_length;
 
-	if (coarse_time < tc358748_MIN_COARSE_EXPOSURE)
-		coarse_time = tc358748_MIN_COARSE_EXPOSURE;
-	else if (coarse_time > max_coarse_time) {
-		coarse_time = max_coarse_time;
-		dev_dbg(dev,
-			"%s: exposure limited by frame_length: %d [lines]\n",
-			__func__, max_coarse_time);
-	}
+// 	if (coarse_time < tc358748_MIN_COARSE_EXPOSURE)
+// 		coarse_time = tc358748_MIN_COARSE_EXPOSURE;
+// 	else if (coarse_time > max_coarse_time) {
+// 		coarse_time = max_coarse_time;
+// 		dev_dbg(dev,
+// 			"%s: exposure limited by frame_length: %d [lines]\n",
+// 			__func__, max_coarse_time);
+// 	}
 
-	dev_dbg(dev, "%s: val: %lld [us], coarse_time: %d [lines]\n",
-		__func__, val, coarse_time);
+// 	dev_dbg(dev, "%s: val: %lld [us], coarse_time: %d [lines]\n",
+// 		__func__, val, coarse_time);
 
-	tc358748_get_coarse_integ_time_regs(ct_regs, coarse_time);
+// 	tc358748_get_coarse_integ_time_regs(ct_regs, coarse_time);
 
-	for (i = 0; i < 2; i++) {
-		err = tc358748_write_reg(s_data, ct_regs[i].addr, ct_regs[i].val);
-		if (err) {
-			dev_dbg(dev,
-				"%s: coarse_time control error\n", __func__);
-			return err;
-		}
-	}
+// 	for (i = 0; i < 2; i++) {
+// 		err = tc358748_write_reg(s_data, ct_regs[i].addr, ct_regs[i].val);
+// 		if (err) {
+// 			dev_dbg(dev,
+// 				"%s: coarse_time control error\n", __func__);
+// 			return err;
+// 		}
+// 	}
 
-	return err;
+// 	return err;
+	return 0;
 }
 
 static struct tegracam_ctrl_ops tc358748_ctrl_ops = {
@@ -582,41 +640,43 @@ error:
 
 static int tc358748_set_mode(struct tegracam_device *tc_dev)
 {
-	struct tc358748 *priv = (struct tc358748 *)tegracam_get_privdata(tc_dev);
-	struct camera_common_data *s_data = tc_dev->s_data;
+	// struct tc358748 *priv = (struct tc358748 *)tegracam_get_privdata(tc_dev);
+	// struct camera_common_data *s_data = tc_dev->s_data;
 
-	int err = 0;
+	// int err = 0;
 
 	dev_dbg(tc_dev->dev, "%s:\n", __func__);
 
-	err = tc358748_write_table(priv, mode_table[tc358748_MODE_COMMON]);
-	if (err)
-		return err;
+	// err = tc358748_write_table(priv, mode_table[tc358748_MODE_COMMON]);
+	// if (err)
+	// 	return err;
 
-	err = tc358748_write_table(priv, mode_table[s_data->mode]);
-	if (err)
-		return err;
+	// err = tc358748_write_table(priv, mode_table[s_data->mode]);
+	// if (err)
+	// 	return err;
 
 	return 0;
 }
 
 static int tc358748_start_streaming(struct tegracam_device *tc_dev)
 {
-	struct tc358748 *priv = (struct tc358748 *)tegracam_get_privdata(tc_dev);
+	// struct tc358748 *priv = (struct tc358748 *)tegracam_get_privdata(tc_dev);
 
-	dev_dbg(tc_dev->dev, "%s:\n", __func__);
-	return tc358748_write_table(priv, mode_table[tc358748_START_STREAM]);
+	// dev_dbg(tc_dev->dev, "%s:\n", __func__);
+	// return tc358748_write_table(priv, mode_table[tc358748_START_STREAM]);
+	return 0;
 }
 
 static int tc358748_stop_streaming(struct tegracam_device *tc_dev)
 {
-	int err;
-	struct tc358748 *priv = (struct tc358748 *)tegracam_get_privdata(tc_dev);
+	// int err;
+	// struct tc358748 *priv = (struct tc358748 *)tegracam_get_privdata(tc_dev);
 
-	dev_dbg(tc_dev->dev, "%s:\n", __func__);
-	err = tc358748_write_table(priv, mode_table[tc358748_STOP_STREAM]);
+	// dev_dbg(tc_dev->dev, "%s:\n", __func__);
+	// err = tc358748_write_table(priv, mode_table[tc358748_STOP_STREAM]);
 
-	return err;
+	// return err;
+	return 0;
 }
 
 static struct camera_common_sensor_ops tc358748_common_ops = {
@@ -638,7 +698,7 @@ static int tc358748_board_setup(struct tc358748 *priv)
 {
 	struct camera_common_data *s_data = priv->s_data;
 	struct device *dev = s_data->dev;
-	u8 reg_val[2];
+	// u8 reg_val[2];
 	int err = 0;
 
 	// Skip mclk enable as this camera has an internal oscillator
@@ -650,31 +710,33 @@ static int tc358748_board_setup(struct tc358748 *priv)
 	}
 
 	/* Probe sensor model id registers */
-	err = tc358748_read_reg(s_data, tc358748_MODEL_ID_ADDR_MSB, &reg_val[0]);
-	if (err) {
-		dev_err(dev, "%s: error during i2c read probe (%d)\n",
-			__func__, err);
-		goto err_reg_probe;
-	}
-	err = tc358748_read_reg(s_data, tc358748_MODEL_ID_ADDR_LSB, &reg_val[1]);
-	if (err) {
-		dev_err(dev, "%s: error during i2c read probe (%d)\n",
-			__func__, err);
-		goto err_reg_probe;
-	}
+	// err = tc358748_read_reg(s_data, tc358748_MODEL_ID_ADDR_MSB, &reg_val[0]);
+	// if (err) {
+	// 	dev_err(dev, "%s: error during i2c read probe (%d)\n",
+	// 		__func__, err);
+	// 	goto err_reg_probe;
+	// }
+	// err = tc358748_read_reg(s_data, tc358748_MODEL_ID_ADDR_LSB, &reg_val[1]);
+	// if (err) {
+	// 	dev_err(dev, "%s: error during i2c read probe (%d)\n",
+	// 		__func__, err);
+	// 	goto err_reg_probe;
+	// }
 
-	if (!((reg_val[0] == 0x00) && reg_val[1] == 0x00))
-		dev_err(dev, "%s: invalid sensor model id: %x%x\n",
-			__func__, reg_val[0], reg_val[1]);
+	// if (!((reg_val[0] == 0x00) && reg_val[1] == 0x00))
+	// 	dev_err(dev, "%s: invalid sensor model id: %x%x\n",
+	// 		__func__, reg_val[0], reg_val[1]);
 
-	/* Sensor fine integration time */
-	err = tc358748_get_fine_integ_time(priv, &priv->fine_integ_time);
-	if (err)
-		dev_err(dev, "%s: error querying sensor fine integ. time\n",
-			__func__);
+	// /* Sensor fine integration time */
+	// err = tc358748_get_fine_integ_time(priv, &priv->fine_integ_time);
+	// if (err)
+	// 	dev_err(dev, "%s: error querying sensor fine integ. time\n",
+	// 		__func__);
 
-err_reg_probe:
-	tc358748_power_off(s_data);
+	return 0;
+
+// err_reg_probe:
+// 	tc358748_power_off(s_data);
 
 done:
 	return err;

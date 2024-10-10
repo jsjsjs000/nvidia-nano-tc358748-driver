@@ -95,10 +95,10 @@
 
 	cam_i2cmux {
 		i2c_0: i2c@0 {
-			tc358748_cam0: rbpcv4_tc358748_a@1a {
-				compatible = "nvidia,tc358748";
+			tc358748_cam0: rbpcv4_tc358748_a@0e {
+				compatible = "pco,tc358748";
 				/* I2C device address */
-				reg = <0x1a>;
+				reg = <0x0e>;
 
 				/* V4L2 device node location */
 				devnode = "video0";
@@ -289,10 +289,10 @@
 			};
 		};
 		i2c_1: i2c@1 {
-			tc358748_cam1: rbpcv4_tc358748_e@1a {
-				compatible = "nvidia,tc358748";
+			tc358748_cam1: rbpcv4_tc358748_e@0e {
+				compatible = "pco,tc358748";
 				/* I2C device address */
-				reg = <0x1a>;
+				reg = <0x0e>;
 
 				/* V4L2 device node location */
 				devnode = "video1";
@@ -540,8 +540,8 @@
 				orientation = "1";
 				cam_module0_drivernode0: drivernode0 {
 					pcl_id = "v4l2_sensor";
-					devname = "tc358748 7-001a";
-					proc-device-tree = "/proc/device-tree/cam_i2cmux/i2c@0/rbpcv4_tc358748_a@1a";
+					devname = "tc358748 7-000e";
+					proc-device-tree = "/proc/device-tree/cam_i2cmux/i2c@0/rbpcv4_tc358748_a@0e";
 				};
 			};
 			cam_module1: module1 {
@@ -550,8 +550,8 @@
 				orientation = "1";
 				cam_module1_drivernode0: drivernode0 {
 					pcl_id = "v4l2_sensor";
-					devname = "tc358748 8-001a";
-					proc-device-tree = "/proc/device-tree/cam_i2cmux/i2c@1/rbpcv4_tc358748_e@1a";
+					devname = "tc358748 8-000e";
+					proc-device-tree = "/proc/device-tree/cam_i2cmux/i2c@1/rbpcv4_tc358748_e@0e";
 				};
 			};
 		};

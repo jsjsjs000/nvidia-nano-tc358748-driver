@@ -36,8 +36,8 @@
 		__overlay__ {
 			status = "okay";
 			pcl_id = "v4l2_sensor";
-			devname = "tc358748 7-001a";
-			proc-device-tree = "/proc/device-tree/cam_i2cmux/i2c@0/rbpcv4_tc358748_a@1a";
+			devname = "tc358748 7-000e";
+			proc-device-tree = "/proc/device-tree/cam_i2cmux/i2c@0/rbpcv4_tc358748_a@0e";
 		};
 	};
 	fragment@3 {
@@ -60,8 +60,8 @@
 		__overlay__ {
 			status = "okay";
 			pcl_id = "v4l2_sensor";
-			devname = "tc358748 8-001a";
-			proc-device-tree = "/proc/device-tree/cam_i2cmux/i2c@1/rbpcv4_tc358748_e@1a";
+			devname = "tc358748 8-000e";
+			proc-device-tree = "/proc/device-tree/cam_i2cmux/i2c@1/rbpcv4_tc358748_e@0e";
 		};
 	};
 	fragment@6 {
