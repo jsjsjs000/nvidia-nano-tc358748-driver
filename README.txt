@@ -18,7 +18,7 @@ cp ~/l4t-gcc/Linux_for_Tegra/source/public/hardware/nvidia/platform/t210/porg/ke
 
 # -------------------- Device Tree restore --------------------
 backup=~/nvidia-nano-tc358748-driver
-cp $backup/dts/tegra210-p3448-all-p3449-0000-tc358748.dts                    ~/l4t-gcc/Linux_for_Tegra/source/public/hardware/nvidia/platform/t210/porg/kernel-dts/
+cp $backup/dts/tegra210-p3448-all-p3449-0000-tc358748.dts     ~/l4t-gcc/Linux_for_Tegra/source/public/hardware/nvidia/platform/t210/porg/kernel-dts/
 cp $backup/dts/tegra210-porg-camera-rbpcv4-dual-tc358748.dtsi ~/l4t-gcc/Linux_for_Tegra/source/public/hardware/nvidia/platform/t210/porg/kernel-dts/porg-platforms/
 cp $backup/dts/tegra210-camera-rbpcv4-dual-tc358748.dtsi      ~/l4t-gcc/Linux_for_Tegra/source/public/hardware/nvidia/platform/t210/porg/kernel-dts/porg-platforms/
 
@@ -51,3 +51,14 @@ cp ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/nvidia/include/media/tc358748.
 backup=~/nvidia-nano-tc358748-driver
 cp $backup/driver/tc358748.c           ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/kernel-4.9/drivers/media/i2c/
 cp $backup/driver/tc358748.h           ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/nvidia/include/media/
+
+# -------------------- Backup patch --------------------
+backup=~/nvidia-nano-tc358748-driver
+mkdir -p $backup/patch/
+cp ~/l4t-gcc/Linux_for_Tegra/source/public/kernel/kernel-4.9/0001-regmap-add-formats.patch $backup/patch/
+
+# -------------------- Apply patch --------------------
+cd kernel/kernel-4.9/
+cp $backup/patch/0001-regmap-add-formats.patch .
+git apply 0001-regmap-add-formats.patch
+cd -
